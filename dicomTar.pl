@@ -25,7 +25,7 @@ my $versionInfo = sprintf "%d", q$Revision: 9 $ =~ /: (\d+)/;
 my $tarTypeVersion = 1;
 # Set stuff for GETOPT
 my ($dcm_source, $targetlocation);
-my $verbose    = 1;
+my $verbose    = 0;
 my $profile    = undef;
 my $neurodbCenterName = undef;
 my $clobber    = 0;
@@ -202,6 +202,10 @@ if ($mri_upload_update) {
     my $script =  "updateMRI_Upload.pl"
                  . " -profile $profile -globLocation -tarchivePath $finalTarget"
                  . " -sourceLocation $dcm_source";
+    if ($verbose){
+        $script.= " -verbose";
+    	print $script . "\n";
+    }
     my $output = system($script);
     if ($output!=0)  {
         print "\n\tERROR: the script updateMRI_Upload.pl has failed \n\n"; 

@@ -88,7 +88,6 @@ $QCed2_step   =   'INTERLACE_outputDWIFileNameSuffix';
 # how to getPSC(), either PatientID or PatientName if useScanner is NOT set, 
 # otherwise, use ScannerSerialNumber instead
 sub lookupCenterName {
-    my $lookupCenterNameUsing = 'PatientName';
     if ($useScannerInfo) {
         $lookupCenterNameUsing = 'ScannerSerialNumber';
     }

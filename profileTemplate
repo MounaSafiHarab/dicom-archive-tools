@@ -36,6 +36,7 @@ $mail_user      = "yourname\@example.com";      # who will be notified
 $get_dicom_info = "/PATH/TO/get_dicom_info.pl"; # path to get_dicom_info.pl
 $horizontalPics = 1;
 $no_nii         = 0;                            # 0=create nifti files, 1=don't create nifti files
+$useScannerInfo = 1;                            # 0=do not use scanner info, 1=use scanner info
 
 # if converter is set to dcm2mnc, the c-version of dcm2mnc will be used. If however you want 
 # to use any of the various versions of the perl converter dicom_to_minc of mydcm2mnc you will have 
@@ -83,6 +84,17 @@ $QCed2_step   =   'INTERLACE_outputDWIFileNameSuffix';
   having one system that rules them all...
 # -----------------------------------------------------------------------------------------------
 =cut
+
+# how to getPSC(), either PatientID or PatientName if useScanner is NOT set, 
+# otherwise, use ScannerSerialNumber instead
+sub lookupCenterName {
+    my $lookupCenterNameUsing = 'PatientName';
+    if ($useScannerInfo) {
+        $lookupCenterNameUsing = 'ScannerSerialNumber';
+    }
+    return $lookupCenterNameUsing;
+}
+
 
 sub getIncomingDir {
     my $site = shift;

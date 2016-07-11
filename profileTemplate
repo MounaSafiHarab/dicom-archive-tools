@@ -84,10 +84,6 @@ $QCed2_step   =   'INTERLACE_outputDWIFileNameSuffix';
 # -----------------------------------------------------------------------------------------------
 =cut
 
-sub getIncomingDir {
-    my $site = shift;
-    return $tarchiveLibraryDir;
-}
 # extracts the subject and timepoint identifiers from the patient name 
 # assumes identifers are stored as <PSCID>_<DCCID>_<visit> in PatientName field, where <visit> is 3 digits.
 sub getSubjectIDs {

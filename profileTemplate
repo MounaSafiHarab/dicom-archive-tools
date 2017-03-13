@@ -52,9 +52,9 @@ $lookupCenterNameUsing = 'PatientName';
 # should the upload create candidates when needed? 0/1
 $createCandidates = 1;
 
-###1 if the qsub/sge is used 0 otherwise##
+###1 for projects using batch management, and 0 otherwise##
 ##set false by default##
-$if_sge = 0;
+$is_qsub = 0;
 
 ###1 if site is used or 0 otherwise####
 ###It is used by default

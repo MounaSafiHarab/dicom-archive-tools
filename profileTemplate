@@ -125,15 +125,14 @@ sub filterParameters {
 
 
 # ----------- OPTIONAL SUBROUTINE
-# Fetch site, CandID and Visit info from DTI folder.
-sub  get_DTI_Site_CandID_Visit {
+# Fetch CandID and Visit info from DTI folder.
+sub  get_DTI_CandID_Visit {
     my ($native_dir) =   @_;
 
     if  ($native_dir =~  /assembly\/(\d\d\d\d\d\d)\/(V\d{1,2})\/mri\//i)  {  
-        my  $site   =   $prefix;                          
         my  $subjID =   $1;
         my  $visit  =   $2;
-        return  ($site,$subjID,$visit);
+        return  ($subjID,$visit);
     }else{
         return  undef;
     }

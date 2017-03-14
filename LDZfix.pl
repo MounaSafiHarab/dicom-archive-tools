@@ -12,6 +12,7 @@ use Getopt::Tabular;
 
 use lib "$FindBin::Bin";
 use DICOM::DICOM;
+use NeuroDB::DBI;
 
 $|++;
 
@@ -50,13 +51,28 @@ unless(scalar(@leftovers) == 1 && $profile) {
 	 print $Usage;
 	 exit(1);
 }
+
 my $ldzf = abs_path($leftovers[0]);
 if (-d $ldzf && $ldzf =~ /LDZ/) { print "\nSelected study folder:\t $ldzf\n" }
 else { print "\n\tERROR: The target is not a directory or does not contain LDZ data!\n"; exit 33; }
 
 # 1.
 { package Settings; do "$ENV{LORIS_CONFIG}/.loris_mri/$profile" || exit}
-my $get_dicom_info   = $Settings::get_dicom_info;
+if (!@Settings::db) {
+    print "\n\tERROR: You don't have database settings in: ".
+          "$ENV{LORIS_CONFIG}/.loris_mri/$profile \n\n";
+    exit;
+}
+################################################################
+######### Establish database connection ########################
+################################################################
+my $dbh = &NeuroDB::DBI::connect_to_db(@Settings::db);
+print "\n==> Successfully connected to database \n";
+
+my $get_dicom_info   = &NeuroDB::DBI::getConfigSetting(
+                        $dbh,'get_dicom_info'
+                        );
+
 my $series = `find $ldzf -type f | $get_dicom_info -stdin -series -te -echo -slice_thickness | sort -u | grep 80 | cut -f 1\n`;
 # fixme this is really dirty
 my @series = split(" \n", $series);

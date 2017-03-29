@@ -126,7 +126,7 @@ print "Connecting to database.\n" if $verbose;
 ################################################################
 
 # fetch tarchiveLibraryDir from ConfigSettings in the database
-my $tarchiveLibraryDir = NeuroDB::DBI::getConfigSetting(
+my $tarchiveLibraryDir = &DB::DBI::getConfigSetting(
                             $dbh,'tarchiveLibraryDir'
                             );
 # determine tarchive path stored in the database (without tarchiveLibraryDir)

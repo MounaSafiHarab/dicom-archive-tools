@@ -61,7 +61,7 @@ if(!$profile) { print $Usage; print "\n\tERROR: You must specify an existing pro
 my $dbh = &DB::DBI::connect_to_db(@Settings::db); print "Connecting to database.\n" if $verbose;
 
 # get $tarchiveLibraryDir from the ConfigSettings table
-my $tarchiveLibraryDir = NeuroDB::DBI::getConfigSetting(
+my $tarchiveLibraryDir = &DB::DBI::getConfigSetting(
                             $dbh,'tarchiveLibraryDir'
                             );
 $tarchiveLibraryDir    =~ s/\/$//g;

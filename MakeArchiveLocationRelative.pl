@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 use Getopt::Tabular;
-use NeuroDB::DBI;
+use DB::DBI;
 
 my $profile = undef;
 
@@ -43,13 +43,13 @@ if ($profile && !@Settings::db) {
 ################################################################
 ######### Establish database connection ########################
 ################################################################
-my $dbh = &NeuroDB::DBI::connect_to_db(@Settings::db);
+my $dbh = &DB::DBI::connect_to_db(@Settings::db);
 print "\n==> Successfully connected to database \n";
 
 ################################################################
 #### This setting is in the ConfigSettings table   #############
 ################################################################
-my $tarchiveLibraryDir = NeuroDB::DBI::getConfigSetting(
+my $tarchiveLibraryDir = &DB::DBI::getConfigSetting(
                             $dbh,'tarchiveLibraryDir'
                             );
 $tarchiveLibraryDir    =~ s/\/$//g;

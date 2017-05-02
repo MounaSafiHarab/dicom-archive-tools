@@ -79,6 +79,7 @@ sub database {
     my $dbh    = shift;
     my $meta   = shift;
     my $update = shift;
+    my $noappend = shift;
     
     # these are only available if you run dicomTar
     my $tarType     = shift;
@@ -87,6 +88,7 @@ sub database {
     my $Archivemd5  = shift;
     my $Archive     = shift;
     my $neurodbCenterName = shift;
+    my $ind = shift;
 
     if(defined($neurodbCenterName)) {
         $neurodbCenterName = "'$neurodbCenterName'";
@@ -115,7 +117,7 @@ QUERY
     # if there is an entry get create info
     if($sth->rows > 0) {
 	my @row = $sth->fetchrow_array();
-	if($update == 0) {
+	if($update == 0 && $noappend) {
 	    print "\n\nPROBLEM:\n The user \'$row[3]\' has already inserted this study. \n The unique study ID is $row[0]\n";
 	    print " This is the information retained from the first time the study was inserted:\n $row[1]\n\n";
 	    print " Last update of record :\n $row[2]\n\n";
@@ -128,12 +130,14 @@ QUERY
 	    exit 33; }
 	
     } else {
-	$update = 0;
+    	$update = 0;
     }
 
     # INSERT or UPDATE 
     # get acquisition metadata
-    my $sfile = "$self->{tmpdir}/$meta.meta";
+    my $metaind = $meta . "_" . $ind;
+    my $sfile = "$self->{tmpdir}/$metaind.meta";
+    print "$sfile \n";
     my $metacontent = &read_file($sfile);
     
     (my $common_query_part = <<QUERY) =~ s/\n/ /gm;  
@@ -241,8 +245,11 @@ print "Failed running query: $query\n\n\n" unless $success;
 
     # now get the TarchiveID
     my $tarchiveID;
-    if(!$update) {
+    print "Noappend value is: " . $noappend . "\n";
+    print "Update value is: " . $update . "\n";
+    if(!$update || $noappend) {
         $tarchiveID = $dbh->{'mysql_insertid'};
+        print "Tarchive ID in update/append is: " . $tarchiveID . "\n";
     } else {
         (my $query = <<QUERY) =~ s/\n/ /gm;
           SELECT 
@@ -257,6 +264,7 @@ QUERY
         $sth->execute($self->{studyuid}, $self->{dcmdir});
         my @row = $sth->fetchrow_array();
         $tarchiveID = $row[0];
+        print "Tarchive ID in overwrite is: " . $tarchiveID . "\n";
     }
     
     # if update, nuke series and files records then reinsert them
@@ -299,39 +307,38 @@ QUERY
           )
 QUERY
     my $insert_series = $dbh->prepare($query);
-    foreach my $acq (@{$self->{acqu_List}}) {
 
-        # insert the series
-        my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
-        
-        #InversionTime may not be insert in the DICOM Header under certain sequences acquisitions  
-        if ($invT eq '') {
-            $invT = undef;
-        }
-        if ($seriesName =~ /ColFA$/i) {
-            $echoT        = undef;    
-            $repT         = undef;
-            $sl_thickness = undef;
-        }
-        if ($modality eq 'MR') {
-            my @values = 
-              (
-               $tarchiveID, $seriesNum,    $seriesName, 
-               $sequName,   $echoT,        $repT, 
-               $invT,       $sl_thickness, $phaseEncode, 
-               $num,        $seriesUID,    $modality
-              );
-            $insert_series->execute(@values);
-        } elsif ($modality eq 'PT') {
-            my @values = 
-              (
-               $tarchiveID, $seriesNum,    $seriesName, 
-               undef,       undef,         undef, 
-               undef,       $sl_thickness, undef, 
-               $num,        $seriesUID,    $modality
-              );
-            $insert_series->execute(@values);
-        }
+    # insert the series we are currently archiving (with index = $ind)
+    my $acq = (@{$self->{acqu_List}}[$ind]);
+    my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
+
+    #InversionTime may not be insert in the DICOM Header under certain sequences acquisitions
+    if ($invT eq '') {
+        $invT = undef;
+    }
+    if ($seriesName =~ /ColFA$/i) {
+        $echoT        = undef;
+        $repT         = undef;
+        $sl_thickness = undef;
+    }
+    if ($modality eq 'MR') {
+        my @values =
+          (
+           $tarchiveID, $seriesNum,    $seriesName,
+           $sequName,   $echoT,        $repT,
+           $invT,       $sl_thickness, $phaseEncode,
+           $num,        $seriesUID,    $modality
+          );
+        $insert_series->execute(@values);
+    } elsif ($modality eq 'PT') {
+        my @values =
+          (
+           $tarchiveID, $seriesNum,    $seriesName,
+           undef,       undef,         undef,
+           undef,       $sl_thickness, undef,
+           $num,        $seriesUID,    $modality
+          );
+        $insert_series->execute(@values);
     }
 
     # now create the tarchive_files records
@@ -355,36 +362,38 @@ QUERY
     my $insert_file = $dbh->prepare($insert_query);
     my $dcmdirRoot = dirname($self->{dcmdir});
     foreach my $file (@{$self->{'dcminfo'}}) {
-        # insert the file
-        my $filename = $file->[4];
-        $filename =~ s/^${dcmdirRoot}\///;
-        $file->[2] = undef if($file->[2] eq '');
-        $select_TarchiveSeriesID->execute($file->[24], $file->[6]); # based on SeriesUID and EchoTime
-        my ($TarchiveSeriesID) = $select_TarchiveSeriesID->fetchrow_array();
-        my @values;
-        if($file->[21] && $file->[25] eq 'MR') { # file is dicom and an MRI scan
-            @values = 
-              (
-               $tarchiveID, $file->[1],  $file->[3], 
-               $file->[2],  $file->[12], $file->[20], 
-               $filename,   $TarchiveSeriesID
-              );
-        } elsif($file->[21] && $file->[25] eq 'PT') { # file is dicom and a PET scan
-            @values = 
-              (
-               $tarchiveID, $file->[1],  $file->[3], 
-               undef,       $file->[12], $file->[20], 
-               $filename,   $TarchiveSeriesID
-              );
-        } else {
-            @values = 
-              (
-               $tarchiveID, undef, undef, 
-               undef,       undef, $file->[20], 
-               $filename,   $TarchiveSeriesID
-              );
+        if($file->[12] eq $seriesName) {
+            # insert the file if it belongs to the series description we are currently archiving
+            my $filename = $file->[4];
+            $filename =~ s/^${dcmdirRoot}\///;
+            $file->[2] = undef if($file->[2] eq '');
+            $select_TarchiveSeriesID->execute($file->[24], $file->[6]); # based on SeriesUID and EchoTime
+            my ($TarchiveSeriesID) = $select_TarchiveSeriesID->fetchrow_array();
+            my @values;
+            if($file->[21] && $file->[25] eq 'MR') { # file is dicom and an MRI scan
+                @values =
+                  (
+                   $tarchiveID, $file->[1],  $file->[3],
+                   $file->[2],  $file->[12], $file->[20],
+                   $filename,   $TarchiveSeriesID
+                  );
+            } elsif($file->[21] && $file->[25] eq 'PT') { # file is dicom and a PET scan
+                @values =
+                  (
+                   $tarchiveID, $file->[1],  $file->[3],
+                   undef,       $file->[12], $file->[20],
+                   $filename,   $TarchiveSeriesID
+                  );
+            } else {
+                @values =
+                  (
+                   $tarchiveID, undef, undef,
+                   undef,       undef, $file->[20],
+                   $filename,   $TarchiveSeriesID
+                  );
+            }
+            $insert_file->execute(@values);
         }
-        $insert_file->execute(@values);
     }
     return $success; # if query worked this will return 1;
 }
@@ -734,14 +743,20 @@ print CONTENT using formats below
 =cut 
 sub print_content {
     my $self = shift;
+    my $ind  = shift;
     my @files = @{$self->{'dcminfo'}};
+    my $acq = (@{$self->{acqu_List}}[$ind]);
+    my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
+
     my ($d, $i) = 0;
     &write_content_head();
     foreach my $file (@files) {
 	$file->[4]    = basename($file->[4]); # get rid of path to file
 	if($file->[21]) { # file is dicom
-	    &write_dcm(\$file);
-	    $d++; # dicom count
+        if ($file->[12] eq $seriesName) { # file is in the series description being processed
+ 	        &write_dcm(\$file);
+	        $d++; # dicom count for the series description under consideration
+	    }
 	}
 	else {
 	    &write_other(\$file);
@@ -793,13 +808,11 @@ print Acquisitions using formats below
 =cut
 sub print_acquisitions {
     my $self = shift;
+    my $ind = $_[0];
     my @a = @{$self->{acqu_List}};
+    my $acq = @a[$ind];
     &write_acqu_head();  # print the pseudo xml header
-    my $i = 0;    
-    foreach my $value (@a) { # loop through the acquisition summary hash
-	&write_acqu_content($value);
-	$i++;
-    }
+	&write_acqu_content($acq);
     print "</ACQUISITIONS>\n"; # print the pseudo xml footer
 }
 ################################################ print aquisition header
@@ -814,7 +827,7 @@ Series (SN) | Name of series                  | Seq Name        | echoT ms | rep
 ################################################ print aquisition types
 sub write_acqu_content {
     my $acqu = shift;
-    my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $num) = split(':::',$acqu);
+    my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::',$acqu);
     $~ = 'FORMAT_ACQU';
     write();
     format FORMAT_ACQU =
@@ -829,21 +842,31 @@ print footer using formats below
 ################################################################################################################################################
 =cut
 sub print_footer {
-    my $self = shift;
-    $self->write_footer($self);
+    my $self   = shift;
+    my $ind    = $_[0];
+
+    $self->write_footer($self,$ind);
+
     my ($total, $acquNum, $acquName)  = @_;
 
     }
 ################################################ print summary information
 sub write_footer {
-    my $self = shift;
+    my $self  = shift;
+    my $ind   = $_[1];
+    my @a= @{$self->{acqu_List}};
+    my $acq = @a[$ind];
+
+    my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::',$acq);
+print "Acq details are seriesname and num of files: " . $seriesName . " and " . $num . "\n";
+
     my $scanage = &date_format($self->{header}->{birthdate},$self->{header}->{scandate});
     $~ = 'FORMAT_FOOTER';
     write();
     format FORMAT_FOOTER =
 <SUMMARY>
 Total number of files   :   @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-                            $self->{totalcount},
+                            $num,
 Age at scan             :   @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
                             $scanage,
 </SUMMARY>
@@ -856,11 +879,12 @@ PRINT THE WHOLE THING ! THIS IS WHAT YOU REALLY WANT
 =cut
 sub dcmsummary {
     my $self = shift;
+    my $ind  = shift;
     print "<STUDY>\n";
     $self->print_header();
-    $self->print_content();
-    $self->print_acquisitions();
-    $self->print_footer();
+    $self->print_content($ind);
+    $self->print_acquisitions($ind);
+    $self->print_footer($ind);
     print "</STUDY>\n";
 }
 

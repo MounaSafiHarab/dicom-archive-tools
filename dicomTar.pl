@@ -99,9 +99,11 @@ my $today           = sprintf("%4d-%02d-%02d",$year+1900,$mon+1,$mday);
 my $hostname        = inet_ntoa(scalar(gethostbyname(hostname() || 'localhost'))); #`hostname -f`; # fixme specify -f for fully qualified if you need it.
 my $system          = `uname`;
 
-
-# Remove .DS_Store from dcm_source directory if exist
-my $cmd = "cd " . $dcm_source . "; find -name '.DS_Store' | xargs rm -f";
+# Remove all files starting with . in the dcm_source directory
+my $cmd = "cd " . $dcm_source . "; find -name '.*' | xargs rm -f";
+system($cmd);
+# Remove __MACOSX directory
+my $cmd = "cd " . $dcm_source . "; find -name '__MACOSX' | xargs rm -rf";
 system($cmd);
 
 # create new summary object

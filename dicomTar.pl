@@ -100,7 +100,7 @@ my $hostname        = inet_ntoa(scalar(gethostbyname(hostname() || 'localhost'))
 my $system          = `uname`;
 
 # Remove all files starting with . in the dcm_source directory
-my $cmd = "cd " . $dcm_source . "; find -name '.*' | xargs rm -f";
+my $cmd = "cd " . $dcm_source . "; find -type f -name '.*' | xargs rm -f";
 system($cmd);
 # Remove __MACOSX directory
 my $cmd = "cd " . $dcm_source . "; find -name '__MACOSX' | xargs rm -rf";

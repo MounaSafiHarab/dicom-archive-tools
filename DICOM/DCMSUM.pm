@@ -111,7 +111,7 @@ sub database {
 QUERY
     my $sth = $dbh->prepare($query);
     $sth->execute($self->{studyuid});
-    
+=pod
     # if there is an entry get create info
     if($sth->rows > 0) {
 	my @row = $sth->fetchrow_array();
@@ -130,7 +130,7 @@ QUERY
     } else {
 	$update = 0;
     }
-
+=cut
     # INSERT or UPDATE 
     # get acquisition metadata
     my $sfile = "$self->{tmpdir}/$meta.meta";

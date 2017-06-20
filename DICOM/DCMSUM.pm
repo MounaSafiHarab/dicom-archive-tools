@@ -242,15 +242,46 @@ print "Failed running query: $query\n\n\n" unless $success;
     # now get the TarchiveID
     my $tarchiveID;
     if(!$update) {
-        $tarchiveID = $dbh->{'mysql_insertid'};
+    foreach my $acq (@{$self->{acqu_List}}) {
+
+        # insert the series
+        my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
+
+
+  (my $query_seriesuid = <<QUERY_seriesuid) =~ s/\n/ /gm;
+      SELECT
+        TarchiveSeriesID,
+        TarchiveID,
+        SeriesNumber,
+        SeriesDescription
+      FROM
+        tarchive_series
+      WHERE
+        SeriesUID=?
+QUERY_seriesuid
+    my $sth_seriesuid = $dbh->prepare($query_seriesuid);
+    $sth_seriesuid->execute($seriesUID);
+
+    # if there is an entry send a message to the user that this sequence has been already inserted so it won't be updated
+    if($sth_seriesuid->rows > 0) {
+        my @row = $sth_seriesuid->fetchrow_array();
+        if($update == 0) {
+            print "\n\nWARNING:\n Skipping TarchiveID creation as this sequence is already inserted. \n\n";
+        }
+    } else {
+    print "\n\nCreating tarchiveID for $seriesNum. \n";
+                    $tarchiveID = $dbh->{'mysql_insertid'};
+    }
+    }
+
     } else {
         (my $query = <<QUERY) =~ s/\n/ /gm;
           SELECT 
             TarchiveID 
           FROM 
-            tarchive 
+            tarchive
           WHERE 
-            DicomArchiveID = ? 
+            DicomArchiveID = ?
             AND SourceLocation= ?
 QUERY
         my $sth = $dbh->prepare($query);
@@ -303,7 +334,31 @@ QUERY
 
         # insert the series
         my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
-        
+
+
+  (my $query_seriesuid = <<QUERY_seriesuid) =~ s/\n/ /gm;
+      SELECT
+        TarchiveSeriesID,
+        TarchiveID,
+        SeriesNumber,
+        SeriesDescription
+      FROM
+        tarchive_series
+      WHERE
+        SeriesUID=?
+QUERY_seriesuid
+    my $sth_seriesuid = $dbh->prepare($query_seriesuid);
+    $sth_seriesuid->execute($seriesUID);
+
+    # if there is an entry send a message to the user that this sequence has been already inserted so it won't be updated
+    if($sth_seriesuid->rows > 0) {
+        my @row = $sth_seriesuid->fetchrow_array();
+        if($update == 0) {
+            print "\n\nWARNING:\n The sequence \'$row[3]\' has already been inserted to the database. \n The Series Number is \'$row[2]\', " .
+                  " the TarchiveSeriesID is \'$row[0]\' and the TarchiveID is \'$row[1]\'. Skipping insertion of this sequence. \n\n";
+        }
+    } else {
+
         #InversionTime may not be insert in the DICOM Header under certain sequences acquisitions  
         if ($invT eq '') {
             $invT = undef;
@@ -332,7 +387,6 @@ QUERY
               );
             $insert_series->execute(@values);
         }
-    }
 
     # now create the tarchive_files records
     (my $insert_query = <<QUERY) =~ s/\n/ /gm;
@@ -350,6 +404,8 @@ QUERY
            ?,          ?
           )
 QUERY
+
+
     my $query_select_TarchiveSeriesID = "SELECT TarchiveSeriesID FROM tarchive_series WHERE SeriesUID = ? AND EchoTime = ?";
     my $select_TarchiveSeriesID = $dbh->prepare($query_select_TarchiveSeriesID);
     my $insert_file = $dbh->prepare($insert_query);
@@ -386,6 +442,8 @@ QUERY
         }
         $insert_file->execute(@values);
     }
+        }
+        }
     return $success; # if query worked this will return 1;
 }
 

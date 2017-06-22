@@ -111,26 +111,7 @@ sub database {
 QUERY
     my $sth = $dbh->prepare($query);
     $sth->execute($self->{studyuid});
-=pod
-    # if there is an entry get create info
-    if($sth->rows > 0) {
-	my @row = $sth->fetchrow_array();
-	if($update == 0) {
-	    print "\n\nPROBLEM:\n The user \'$row[3]\' has already inserted this study. \n The unique study ID is $row[0]\n";
-	    print " This is the information retained from the first time the study was inserted:\n $row[1]\n\n";
-	    print " Last update of record :\n $row[2]\n\n";
-	    exit 33;
-	}
-	# do not allow to run diccomSummary with database option if the study has already been archived
-	elsif (!$Archivemd5 && $row[3] ne "") { 
-	    print "\n\n PROBLEM: This study has already been archived. You can only re-archive it using dicomTar!\n";
-	    print " This is the information retained from the first time the study has been archived:\n $row[1]\n\n";
-	    exit 33; }
-	
-    } else {
-	$update = 0;
-    }
-=cut
+
     # INSERT or UPDATE 
     # get acquisition metadata
     my $sfile = "$self->{tmpdir}/$meta.meta";
@@ -216,234 +197,210 @@ QUERY
         push(@values, @new_vals);
     }
 
-    if (!$update) { 
-        ($query = <<QUERY) =~ s/\n/ /gm;
-          INSERT INTO 
-            $common_query_part, 
-            DateFirstArchived = NOW(), 
-            neurodbCenterName = ?
+    if(!$update) {
+          ($query = <<QUERY) =~ s/\n/ /gm;
+            INSERT INTO
+              $common_query_part,
+              DateFirstArchived = NOW(),
+              neurodbCenterName = ?
 QUERY
-        push(@values, $neurodbCenterName);
-    } 
-    else {  
+          push(@values, $neurodbCenterName);
+    }
+
+    else {
         ($query = <<QUERY) =~ s/\n/ /gm;
-          UPDATE 
-            $common_query_part 
-          WHERE DicomArchiveID = ? 
+          UPDATE
+            $common_query_part
+          WHERE DicomArchiveID = ?
 QUERY
         push(@values, $self->{studyuid});
     }
-    
+
     $sth     = $dbh->prepare($query);
     $success = $sth->execute(@values);
 #FIXME
 print "Failed running query: $query\n\n\n" unless $success;
 
-    # now get the TarchiveID
     my $tarchiveID;
-    if(!$update) {
-    foreach my $acq (@{$self->{acqu_List}}) {
+    my $duplicate_sequence_count;
+    my $sequence_count;
+    my @acqu_List = @{$self->{acqu_List}};
+    my $acqu_List_count = $#acqu_List+1;
+    foreach my $acq (@acqu_List) {
 
         # insert the series
         my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
 
-
-  (my $query_seriesuid = <<QUERY_seriesuid) =~ s/\n/ /gm;
-      SELECT
-        TarchiveSeriesID,
-        TarchiveID,
-        SeriesNumber,
-        SeriesDescription
-      FROM
-        tarchive_series
-      WHERE
-        SeriesUID=?
-QUERY_seriesuid
-    my $sth_seriesuid = $dbh->prepare($query_seriesuid);
-    $sth_seriesuid->execute($seriesUID);
-
-    # if there is an entry send a message to the user that this sequence has been already inserted so it won't be updated
-    if($sth_seriesuid->rows > 0) {
+        (my $query_seriesuid = <<QUERY) =~ s/\n/ /gm;
+          SELECT
+            TarchiveSeriesID,
+            TarchiveID,
+            SeriesNumber,
+            SeriesDescription
+          FROM
+            tarchive_series
+          WHERE
+            SeriesUID=?
+QUERY
+        my $sth_seriesuid = $dbh->prepare($query_seriesuid);
+        $sth_seriesuid->execute($seriesUID);
         my @row = $sth_seriesuid->fetchrow_array();
-        if($update == 0) {
-            print "\n\nWARNING:\n Skipping TarchiveID creation as this sequence is already inserted. \n\n";
-        }
-    } else {
-    print "\n\nCreating tarchiveID for $seriesNum. \n";
-                    $tarchiveID = $dbh->{'mysql_insertid'};
-    }
-    }
 
-    } else {
-        (my $query = <<QUERY) =~ s/\n/ /gm;
-          SELECT 
-            TarchiveID 
-          FROM 
-            tarchive
-          WHERE 
-            DicomArchiveID = ?
-            AND SourceLocation= ?
+
+        if($update == 0 && $sth_seriesuid->rows > 0) {
+            $duplicate_sequence_count++;
+            # if there is an entry, and no clobber, send a message to the user that this sequence has been already inserted so it won't be updated
+            print "\n\nWARNING:\n Skipping TarchiveID creation as this sequence is already inserted. \n" .
+                "\nDETAILS:\n The sequence \'$row[3]\' has already been inserted to the database. \n The Series Number is \'$row[2]\', " .
+                " the TarchiveSeriesID is \'$row[0]\' and the TarchiveID is \'$row[1]\'. Skipping insertion of this sequence. \n\n";
+            if ($duplicate_sequence_count == $acqu_List_count) {
+                print "\nERROR:\nAll sequences in this upload have been inserted previously into the database. Exiting. \n";
+                exit 33;
+            }
+        }
+        else {
+            # $tarchiveID = $sth_studyid->{'mysql_insertid'};
+            my $query_select_LastTarchiveID = "SELECT MAX(TarchiveID) FROM tarchive";
+            my $select_LastTarchiveID = $dbh->prepare($query_select_LastTarchiveID);
+            $select_LastTarchiveID->execute();
+            my ($LastTarchiveID) = $select_LastTarchiveID->fetchrow_array();
+            $tarchiveID = $LastTarchiveID;
+
+          ($query = <<QUERY) =~ s/\n/ /gm;
+            INSERT INTO
+              $common_query_part,
+              DateFirstArchived = NOW(),
+              neurodbCenterName = ?
 QUERY
-        my $sth = $dbh->prepare($query);
-        $sth->execute($self->{studyuid}, $self->{dcmdir});
-        my @row = $sth->fetchrow_array();
-        $tarchiveID = $row[0];
-    }
-    
-    # if update, nuke series and files records then reinsert them
-    if($update) {
-        (my $delete_series = <<QUERY) =~ s/\n/ /gm;
-          DELETE FROM 
-            tarchive_series 
-          WHERE 
-            TarchiveID = ?
+          push(@values, $neurodbCenterName);
+
+            # insert series
+            if ($update && $sth_seriesuid->rows > 0) {
+                 # Delete existing entries
+                print "\n\nDeleting series and files entries for SeriesNumber $seriesNum. \n";
+                (my $delete_files = <<QUERY) =~ s/\n/ /gm;
+                  DELETE FROM
+                    tarchive_files
+                  WHERE
+                    TarchiveID = ?
 QUERY
-        (my $delete_files = <<QUERY) =~ s/\n/ /gm;
-          DELETE FROM 
-            tarchive_files 
-          WHERE 
-            TarchiveID = ?
+               (my $delete_series = <<QUERY) =~ s/\n/ /gm;
+                  DELETE FROM
+                    tarchive_series
+                  WHERE
+                    TarchiveID = ?
 QUERY
-        my $sth_series = $dbh->prepare($delete_series);
-        my $sth_files  = $dbh->prepare($delete_files);
-        # Deleting from tarchive_files first because of db constraints.
-        $sth_files->execute($tarchiveID);
-        $sth_series->execute($tarchiveID);
-    }
+                my $sth_files  = $dbh->prepare($delete_files);
+                my $sth_series = $dbh->prepare($delete_series);
+                # Deleting from tarchive_files first because of db constraints.
+                $sth_files->execute($tarchiveID);
+                $sth_series->execute($tarchiveID);
+            }
 
-    # now create the tarchive_series records
-    (my $query = <<QUERY) =~ s/\n/ /gm;
-      INSERT INTO 
-        tarchive_series 
-          (
-           TarchiveID,    SeriesNumber,   SeriesDescription, 
-           SequenceName,  EchoTime,       RepetitionTime, 
-           InversionTime, SliceThickness, PhaseEncoding, 
-           NumberOfFiles, SeriesUID,      Modality
-          ) 
-        VALUES 
-          (
-           ?,             ?,              ?, 
-           ?,             ?,              ?, 
-           ?,             ?,              ?, 
-           ?,             ?,              ?
-          )
+            # now create the tarchive_series records
+            print "\n\nUpdating series and files entries for SeriesNumber $seriesNum. \n";
+            (my $query = <<QUERY) =~ s/\n/ /gm;
+              INSERT INTO
+                tarchive_series
+                  (
+                   TarchiveID,    SeriesNumber,   SeriesDescription,
+                   SequenceName,  EchoTime,       RepetitionTime,
+                   InversionTime, SliceThickness, PhaseEncoding,
+                   NumberOfFiles, SeriesUID,      Modality
+                  )
+                VALUES
+                  (
+                   ?,             ?,              ?,
+                   ?,             ?,              ?,
+                   ?,             ?,              ?,
+                   ?,             ?,              ?
+                  )
 QUERY
-    my $insert_series = $dbh->prepare($query);
-    foreach my $acq (@{$self->{acqu_List}}) {
+            my $insert_series = $dbh->prepare($query);
+            #InversionTime may not be insert in the DICOM Header under certain sequences acquisitions
+            if ($invT eq '') {
+                $invT = undef;
+            }
+            if ($seriesName =~ /ColFA$/i) {
+                $echoT        = undef;
+                $repT         = undef;
+                $sl_thickness = undef;
+            }
+            if ($modality eq 'MR') {
+                my @values =
+                  (
+                   $tarchiveID, $seriesNum,    $seriesName,
+                   $sequName,   $echoT,        $repT,
+                   $invT,       $sl_thickness, $phaseEncode,
+                   $num,        $seriesUID,    $modality
+                  );
+                $insert_series->execute(@values);
+            } elsif ($modality eq 'PT') {
+                my @values =
+                  (
+                   $tarchiveID, $seriesNum,    $seriesName,
+                   undef,       undef,         undef,
+                   undef,       $sl_thickness, undef,
+                   $num,        $seriesUID,    $modality
+                  );
+                $insert_series->execute(@values);
+            }
 
-        # insert the series
-        my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
-
-
-  (my $query_seriesuid = <<QUERY_seriesuid) =~ s/\n/ /gm;
-      SELECT
-        TarchiveSeriesID,
-        TarchiveID,
-        SeriesNumber,
-        SeriesDescription
-      FROM
-        tarchive_series
-      WHERE
-        SeriesUID=?
-QUERY_seriesuid
-    my $sth_seriesuid = $dbh->prepare($query_seriesuid);
-    $sth_seriesuid->execute($seriesUID);
-
-    # if there is an entry send a message to the user that this sequence has been already inserted so it won't be updated
-    if($sth_seriesuid->rows > 0) {
-        my @row = $sth_seriesuid->fetchrow_array();
-        if($update == 0) {
-            print "\n\nWARNING:\n The sequence \'$row[3]\' has already been inserted to the database. \n The Series Number is \'$row[2]\', " .
-                  " the TarchiveSeriesID is \'$row[0]\' and the TarchiveID is \'$row[1]\'. Skipping insertion of this sequence. \n\n";
-        }
-    } else {
-
-        #InversionTime may not be insert in the DICOM Header under certain sequences acquisitions  
-        if ($invT eq '') {
-            $invT = undef;
-        }
-        if ($seriesName =~ /ColFA$/i) {
-            $echoT        = undef;    
-            $repT         = undef;
-            $sl_thickness = undef;
-        }
-        if ($modality eq 'MR') {
-            my @values = 
-              (
-               $tarchiveID, $seriesNum,    $seriesName, 
-               $sequName,   $echoT,        $repT, 
-               $invT,       $sl_thickness, $phaseEncode, 
-               $num,        $seriesUID,    $modality
-              );
-            $insert_series->execute(@values);
-        } elsif ($modality eq 'PT') {
-            my @values = 
-              (
-               $tarchiveID, $seriesNum,    $seriesName, 
-               undef,       undef,         undef, 
-               undef,       $sl_thickness, undef, 
-               $num,        $seriesUID,    $modality
-              );
-            $insert_series->execute(@values);
-        }
-
-    # now create the tarchive_files records
-    (my $insert_query = <<QUERY) =~ s/\n/ /gm;
-      INSERT INTO 
-        tarchive_files 
-          (
-           TarchiveID, SeriesNumber,      FileNumber, 
-           EchoNumber, SeriesDescription, Md5Sum, 
-           FileName,   TarchiveSeriesID
-          ) 
-        VALUES 
-          (
-           ?,          ?,                 ?, 
-           ?,          ?,                 ?, 
-           ?,          ?
-          )
+            # now create the tarchive_files records
+            (my $insert_query = <<QUERY) =~ s/\n/ /gm;
+              INSERT INTO
+                tarchive_files
+                  (
+                   TarchiveID, SeriesNumber,      FileNumber,
+                   EchoNumber, SeriesDescription, Md5Sum,
+                   FileName,   TarchiveSeriesID
+                  )
+                VALUES
+                  (
+                   ?,          ?,                 ?,
+                   ?,          ?,                 ?,
+                   ?,          ?
+                  )
 QUERY
 
-
-    my $query_select_TarchiveSeriesID = "SELECT TarchiveSeriesID FROM tarchive_series WHERE SeriesUID = ? AND EchoTime = ?";
-    my $select_TarchiveSeriesID = $dbh->prepare($query_select_TarchiveSeriesID);
-    my $insert_file = $dbh->prepare($insert_query);
-    my $dcmdirRoot = dirname($self->{dcmdir});
-    foreach my $file (@{$self->{'dcminfo'}}) {
-        # insert the file
-        my $filename = $file->[4];
-        $filename =~ s/^${dcmdirRoot}\///;
-        $file->[2] = undef if($file->[2] eq '');
-        $select_TarchiveSeriesID->execute($file->[24], $file->[6]); # based on SeriesUID and EchoTime
-        my ($TarchiveSeriesID) = $select_TarchiveSeriesID->fetchrow_array();
-        my @values;
-        if($file->[21] && $file->[25] eq 'MR') { # file is dicom and an MRI scan
-            @values = 
-              (
-               $tarchiveID, $file->[1],  $file->[3], 
-               $file->[2],  $file->[12], $file->[20], 
-               $filename,   $TarchiveSeriesID
-              );
-        } elsif($file->[21] && $file->[25] eq 'PT') { # file is dicom and a PET scan
-            @values = 
-              (
-               $tarchiveID, $file->[1],  $file->[3], 
-               undef,       $file->[12], $file->[20], 
-               $filename,   $TarchiveSeriesID
-              );
-        } else {
-            @values = 
-              (
-               $tarchiveID, undef, undef, 
-               undef,       undef, $file->[20], 
-               $filename,   $TarchiveSeriesID
-              );
+            my $query_select_TarchiveSeriesID = "SELECT TarchiveSeriesID FROM tarchive_series WHERE SeriesUID = ? AND EchoTime = ?";
+            my $select_TarchiveSeriesID = $dbh->prepare($query_select_TarchiveSeriesID);
+            my $insert_file = $dbh->prepare($insert_query);
+            my $dcmdirRoot = dirname($self->{dcmdir});
+            foreach my $file (@{$self->{'dcminfo'}}) {
+                # insert the file
+                my $filename = $file->[4];
+                $filename =~ s/^${dcmdirRoot}\///;
+                $file->[2] = undef if($file->[2] eq '');
+                $select_TarchiveSeriesID->execute($file->[24], $file->[6]); # based on SeriesUID and EchoTime
+                my ($TarchiveSeriesID) = $select_TarchiveSeriesID->fetchrow_array();
+                my @values;
+                if($file->[21] && $file->[25] eq 'MR') { # file is dicom and an MRI scan
+                    @values =
+                      (
+                       $tarchiveID, $file->[1],  $file->[3],
+                       $file->[2],  $file->[12], $file->[20],
+                       $filename,   $TarchiveSeriesID
+                      );
+                } elsif($file->[21] && $file->[25] eq 'PT') { # file is dicom and a PET scan
+                    @values =
+                      (
+                       $tarchiveID, $file->[1],  $file->[3],
+                       undef,       $file->[12], $file->[20],
+                       $filename,   $TarchiveSeriesID
+                      );
+                } else {
+                    @values =
+                      (
+                       $tarchiveID, undef, undef,
+                       undef,       undef, $file->[20],
+                       $filename,   $TarchiveSeriesID
+                      );
+                }
+            $insert_file->execute(@values);
+            }
         }
-        $insert_file->execute(@values);
     }
-        }
-        }
     return $success; # if query worked this will return 1;
 }
 

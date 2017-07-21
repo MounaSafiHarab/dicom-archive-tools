@@ -34,8 +34,10 @@ sub new {
     my $dcm_dir = shift;
     my $tmp_dir = shift;
 
+
 # summary Type VERSION: This should be changed, if - and only if the way the summary is created changes!!
-    $self->{sumTypeVersion} = 1;
+# changed to version 2 due to the archival of studies based on a per-modality basis
+    $self->{sumTypeVersion} = 2;
 
 # set up some basic stuff    
     $self->{dcmdir}     = $dcm_dir;                    # the dcm source dir
@@ -46,7 +48,9 @@ sub new {
 # get an array describing ALL files
     $self->{dcminfo}   = [$self->content_list($self->{dcmdir})]; 
 ### make sure that there is at least one dicom file in target directory
-    $self->{dcmcount}          = $self->dcm_count();  
+#    $self->{dcmcount}          = $self->dcm_count($seriesName);
+
+
 # studyuid if there is only one study in source
     $self->{studyuid}   = $self->confirm_single_study($self->{dcminfo});
  
@@ -60,9 +64,9 @@ sub new {
     $self->{header}     = $self->fill_header($self->{dcminfo});
     
 # some more counts 
-    $self->{totalcount}        = $self->file_count();
+#    $self->{totalcount}        = $self->file_count();
     $self->{nondcmcount}       = $self->{totalcount} - $self->{dcmcount};
-    $self->{acquisition_count} = $self->acquistion_count();  
+#    $self->{acquisition_count} = $self->acquisition_count();
     $self->{user}              = $ENV{'USER'};
 
     return $self;
@@ -191,6 +195,11 @@ QUERY
         }
     }
 
+    my $acq = (@{$self->{acqu_List}}[$ind]);
+    my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
+
+    my $nondcmcount = $self->{totalcount} - $self->{dcmcount};
+
     my @values = 
       (
        $self->{studyuid},                 $self->{header}->{pname},           
@@ -198,9 +207,9 @@ QUERY
        $self->{header}->{sex},            $self->{header}->{scandate},       
        $self->{header}->{manufacturer},   $self->{header}->{scanner},          
        $self->{header}->{scanner_serial}, $self->{header}->{software},      
-       $self->{header}->{institution},    $self->{acquisition_count},          
-       $self->{nondcmcount},              $self->{dcmcount},                  
-       $creating_user,                    $self->{dcmdir},                     
+       $self->{header}->{institution},    $self->{acquisition_count},
+       $nondcmcount,                      $self->{dcmcount},
+       $creating_user,                    $self->{dcmdir},
        $self->{sumTypeVersion},           $metacontent   
       );
     
@@ -414,30 +423,41 @@ sub read_file {
     return $content;
 }
 
-# Figure out the total number of acquistions
-sub acquistion_count {
+# Figure out the total number of acquisitions
+sub acquisition_count {
     my ($self) = shift;
-    my @ac = @{$self->{acqu_List}};
+    my ($ind) = shift;
+    my @ac = (@{$self->{acqu_List}}[$ind]);
     my $count = @ac;
     return $count;
 }
 
-# Figure out the total number of acquistions
+# Figure out the total number of files
 sub file_count {
     my ($self) = shift;
+    my ($seriesName) = shift;
+    my $count = 0;
     my @ac = @{$self->{dcminfo}};
-    my $count = @ac;
+    foreach my $file (@ac) {
+	    if($file->[12] eq $seriesName) {
+	            $count++;
+	    }
+	}
     return $count;
 }
 
 sub dcm_count {
     my ($self) = shift;
+    my ($seriesName) = shift;
     my @ac = @{$self->{dcminfo}};
+
     my $count = 0;
     foreach my $file (@ac) {
-	if($file->[21]) { # file is dicom
-	    $count++;
-	}
+	    if($file->[12] eq $seriesName) {
+	        if($file->[21]) { # file is dicom
+	            $count++;
+	        }
+	    }
     }
     if ($count == 0) {
 	print "\n\t The target directory does not contain a single DICOM file. \n\n\n";

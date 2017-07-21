@@ -126,6 +126,18 @@ my $update          = 1 if $clobber;
         $update = 0;
     }
 
+    my $acqcount = 1;
+#    my $acqcount = acquisition_count($summary->{acqu_List}, $seriesName);
+    my $dcmcount = dcm_count($summary->{dcminfo}, $seriesName);
+    my $filecount = file_count($summary->{dcminfo}, $seriesName);
+
+    print "dcm count, acqcount and filecount are: $dcmcount, $acqcount, and $filecount \n";
+
+    $summary->{totalcount}        = $filecount;
+    $summary->{dcmcount}          = $dcmcount;
+    $summary->{acquisition_count} = $acqcount;
+
+
     $metaname = $summary->{'metaname'};
     # get the summary type version
     $sumTypeVersion = $summary->{'sumTypeVersion'};
@@ -156,7 +168,7 @@ my $update          = 1 if $clobber;
     # get rid of newline
     chomp($hostname,$system);
 
-    #### create tar from rigt above the source 
+    #### create tar from right above the source
     chdir(dirname($dcm_source));
     print "You will archive the dir\t\t: $totar\n" if $verbose;
 
@@ -316,3 +328,49 @@ sub read_file {
     return $content;
 }
 
+=pod
+# Figure out the total number of acquisitions
+sub acquisition_count {
+    my ($acq) = shift;
+    my ($seriesName) = shift;
+    my @ac = @{$acq};
+    my $count = @ac;
+    return $count;
+}
+=cut
+
+# Figure out the total number of files
+sub file_count {
+
+    my ($acq) = shift;
+    my ($seriesName) = shift;
+    my $count = 0;
+    my @ac = @{$acq};
+    foreach my $file (@ac) {
+	    if($file->[12] eq $seriesName) {
+	            $count++;
+	    }
+	}
+    return $count;
+}
+
+sub dcm_count {
+
+    my ($acq) = shift;
+    my ($seriesName) = shift;
+    my @ac = @{$acq};
+
+    my $count = 0;
+    foreach my $file (@ac) {
+	    if($file->[12] eq $seriesName) {
+	        if($file->[21]) { # file is dicom
+	            $count++;
+	        }
+	    }
+    }
+    if ($count == 0) {
+	print "\n\t The target directory does not contain a single DICOM file. \n\n\n";
+	    exit 33;
+    }
+    else { return $count;}
+}

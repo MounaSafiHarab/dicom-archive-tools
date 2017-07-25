@@ -55,7 +55,7 @@ sub new {
     $self->{studyuid}   = $self->confirm_single_study($self->{dcminfo});
  
 # getting an idea on what there is and breaking it down to different acquisitions
-    $self->{acqu_AoH}   = [ $self->acquisition_AoH($self->{dcminfo}) ];  # Array of Hashes decsribing acquisition parameters for each file
+    $self->{acqu_AoH}   = [ $self->acquisition_AoH($self->{dcminfo}) ];  # Array of Hashes describing acquisition parameters for each file
     $self->{acqu_Sum}   = { $self->collapse($self->{acqu_AoH}) };        # hash table acquisition summary collapsed by unique acquisition definitions
     $self->{acqu_List}  = [ $self->acquisitions($self->{acqu_Sum}) ];    # acquisition Listing sorted by acquisition number to be used for summary
 
@@ -63,10 +63,8 @@ sub new {
     $self->{header}     = {}; 
     $self->{header}     = $self->fill_header($self->{dcminfo});
     
-# some more counts 
-#    $self->{totalcount}        = $self->file_count();
+# some more counts
     $self->{nondcmcount}       = $self->{totalcount} - $self->{dcmcount};
-#    $self->{acquisition_count} = $self->acquisition_count();
     $self->{user}              = $ENV{'USER'};
 
     return $self;
@@ -137,10 +135,15 @@ QUERY
     	$update = 0;
     }
 
+    my $acq = (@{$self->{acqu_List}}[$ind]);
+    my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
+
+    my $nondcmcount = $self->{totalcount} - $self->{dcmcount};
+
     # INSERT or UPDATE 
     # get acquisition metadata
-    my $metaind = $meta . "_" . $ind;
-    my $sfile = "$self->{tmpdir}/$metaind.meta";
+    my $metaseriesnum = $meta . "_" . $seriesNum;
+    my $sfile = "$self->{tmpdir}/$metaseriesnum.meta";
     print "$sfile \n";
     my $metacontent = &read_file($sfile);
     
@@ -194,11 +197,6 @@ QUERY
             $creating_user = $row[0];
         }
     }
-
-    my $acq = (@{$self->{acqu_List}}[$ind]);
-    my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
-
-    my $nondcmcount = $self->{totalcount} - $self->{dcmcount};
 
     my @values = 
       (
@@ -421,49 +419,6 @@ sub read_file {
     }
     close CONTENT;
     return $content;
-}
-
-# Figure out the total number of acquisitions
-sub acquisition_count {
-    my ($self) = shift;
-    my ($ind) = shift;
-    my @ac = (@{$self->{acqu_List}}[$ind]);
-    my $count = @ac;
-    return $count;
-}
-
-# Figure out the total number of files
-sub file_count {
-    my ($self) = shift;
-    my ($seriesName) = shift;
-    my $count = 0;
-    my @ac = @{$self->{dcminfo}};
-    foreach my $file (@ac) {
-	    if($file->[12] eq $seriesName) {
-	            $count++;
-	    }
-	}
-    return $count;
-}
-
-sub dcm_count {
-    my ($self) = shift;
-    my ($seriesName) = shift;
-    my @ac = @{$self->{dcminfo}};
-
-    my $count = 0;
-    foreach my $file (@ac) {
-	    if($file->[12] eq $seriesName) {
-	        if($file->[21]) { # file is dicom
-	            $count++;
-	        }
-	    }
-    }
-    if ($count == 0) {
-	print "\n\t The target directory does not contain a single DICOM file. \n\n\n";
-	    exit 33;
-    }
-    else { return $count;}
 }
 
 =pod 

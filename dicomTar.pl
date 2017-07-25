@@ -127,9 +127,9 @@ my $update          = 1 if $clobber;
     }
 
     my $acqcount = 1;
-#    my $acqcount = acquisition_count($summary->{acqu_List}, $seriesName);
-    my $dcmcount = dcm_count($summary->{dcminfo}, $seriesName);
-    my $filecount = file_count($summary->{dcminfo}, $seriesName);
+#    my $acqcount = acquisition_count($summary->{acqu_List}, $seriesUID);
+    my $dcmcount = dcm_count($summary->{dcminfo}, $seriesUID);
+    my $filecount = file_count($summary->{dcminfo}, $seriesUID);
 
     print "dcm count, acqcount and filecount are: $dcmcount, $acqcount, and $filecount \n";
 
@@ -149,17 +149,17 @@ my $update          = 1 if $clobber;
     my $byDate;
     # Determine how to name the archive... by acquisition date or by today's date.
     if ($todayDate) { $byDate = $today; } else { $byDate = $summary->{header}->{scandate}; } # wrap up the archive 
-    $finalTarget = "$targetlocation/DCM_${byDate}_$summary->{metaname}_$ind.tar";
+    $finalTarget = "$targetlocation/DCM_${byDate}_$summary->{metaname}_$seriesNum.tar";
     print "Target is: " . $finalTarget . "\n";
     if (-e $finalTarget && !$clobber) { print "\nTarget exists. Use clobber to overwrite!\n\n"; exit 2; }
 
     # read acquisition metadata into variable
-    my $metaname_ind = $metaname . "_" . $ind; 
-    $metafile = "$targetlocation/$metaname_ind.meta";
+    my $metaname_seriesnum = $metaname . "_" . $seriesNum;
+    $metafile = "$targetlocation/$metaname_seriesnum.meta";
     open META, ">$metafile";
     META->autoflush(1);
     select(META);
-    $summary->dcmsummary($ind);
+    $summary->dcmsummary($seriesNum);
     my $metacontent = $summary->read_file("$metafile");
 
     # write to STDOUT again
@@ -182,19 +182,19 @@ my $update          = 1 if $clobber;
         $dcm_source
     );
 
-    my $totar_ind = $totar."_".$ind;
-    my ($dicom_file, $cmd, $series_description, $command, $l, $t);
-    $command = "cd $dcm_source; tar cf $targetlocation/$totar_ind.tar ";
+    my $totar_seriesnum = $totar."_".$seriesNum;
+    my ($dicom_file, $cmd, $series_instanceUID, $command, $l, $t);
+    $command = "cd $dcm_source; tar cf $targetlocation/$totar_seriesnum.tar ";
     foreach (@file_list) {
         $dicom_file = $_;
-        $cmd          = "dcmdump $dicom_file | grep SeriesDescription";
-        $series_description =  `$cmd`;
-        ($l,$series_description,$t) = split /\[(.*?)\]/, $series_description;
-        #print $series_description . "\n";
+        $cmd          = "dcmdump $dicom_file | grep SeriesInstanceUID";
+        $series_instanceUID =  `$cmd`;
+        ($l,$series_instanceUID ,$t) = split /\[(.*?)\]/, $series_instanceUID ;
+        #print $series_instanceUID . "\n";
         $dicom_file =~ s/$dcm_source//g;
         $dicom_file =~ s/^\///;
         #$dicom_file =~ s/$totar//g;
-        if ($series_description eq $seriesName) {
+        if ($series_instanceUID  eq $seriesUID) {
             $command = $command . "$dicom_file ";
         }
     }
@@ -206,31 +206,31 @@ my $update          = 1 if $clobber;
     # chdir to targetlocation create md5sums gzip and wrap the whole thing up again into a retarred archive
     chdir($targetlocation);
     print "\ngetting md5sums and gzipping!!\n" if $verbose;
-    print $totar_ind . "\n";
-    $DICOMmd5sum = DICOM::DCMSUM::md5sum($totar_ind.".tar"); #`md5sum $totar.tar`;
-    `gzip -nf $totar_ind.tar`;
-    $zipsum =  DICOM::DCMSUM::md5sum($totar_ind.".tar.gz");
+    print $totar_seriesnum . "\n";
+    $DICOMmd5sum = DICOM::DCMSUM::md5sum($totar_seriesnum.".tar"); #`md5sum $totar.tar`;
+    `gzip -nf $totar_seriesnum.tar`;
+    $zipsum =  DICOM::DCMSUM::md5sum($totar_seriesnum.".tar.gz");
 
     # create tar info for the tarball NOT  containing md5 for archive tarball
-    open TARINFO, ">$totar_ind.log";
+    open TARINFO, ">$totar_seriesnum.log";
     select(TARINFO);
     &archive_head;
     close TARINFO;
     select(STDOUT);
     my $tarinfo = &read_file("$totar.log"); 
 
-    my $retar = "tar cvf DCM\_$byDate\_$totar_ind.tar $totar_ind.meta $totar_ind.log $totar_ind.tar.gz";
+    my $retar = "tar cvf DCM\_$byDate\_$totar_seriesnum.tar $totar_seriesnum.meta $totar_seriesnum.log $totar_seriesnum.tar.gz";
     `$retar`;
     print "Just after the retar\n";
-    $ARCHIVEmd5sum =  DICOM::DCMSUM::md5sum("DCM\_$byDate\_$totar_ind.tar");
+    $ARCHIVEmd5sum =  DICOM::DCMSUM::md5sum("DCM\_$byDate\_$totar_seriesnum.tar");
 
     # create tar info for database containing md5 for archive tarball
-    open TARINFO, ">$totar_ind.log";
+    open TARINFO, ">$totar_seriesnum.log";
     select(TARINFO);
     &archive_head;
     close TARINFO;
     select(STDOUT);
-    $tarinfo = &read_file("$totar_ind.log"); 
+    $tarinfo = &read_file("$totar_seriesnum.log");
     print  $tarinfo if $verbose;
 
 
@@ -264,7 +264,7 @@ my $update          = 1 if $clobber;
         }
     # delete tmp files
     print "\nRemoving temporary files from target location\n\n" if $verbose;
-    `rm -f $totar_ind.tar.gz $totar_ind.meta $totar_ind.log`;
+    `rm -f $totar_seriesnum.tar.gz $totar_seriesnum.meta $totar_seriesnum.log`;
     }
     $ind++;
 }# end of for each acquisition 
@@ -332,7 +332,7 @@ sub read_file {
 # Figure out the total number of acquisitions
 sub acquisition_count {
     my ($acq) = shift;
-    my ($seriesName) = shift;
+    my ($seriesUID) = shift;
     my @ac = @{$acq};
     my $count = @ac;
     return $count;
@@ -343,11 +343,11 @@ sub acquisition_count {
 sub file_count {
 
     my ($acq) = shift;
-    my ($seriesName) = shift;
+    my ($seriesUID) = shift;
     my $count = 0;
     my @ac = @{$acq};
     foreach my $file (@ac) {
-	    if($file->[12] eq $seriesName) {
+	    if($file->[24] eq $seriesUID) {
 	            $count++;
 	    }
 	}
@@ -357,12 +357,12 @@ sub file_count {
 sub dcm_count {
 
     my ($acq) = shift;
-    my ($seriesName) = shift;
+    my ($seriesUID) = shift;
     my @ac = @{$acq};
 
     my $count = 0;
     foreach my $file (@ac) {
-	    if($file->[12] eq $seriesName) {
+	    if($file->[24] eq $seriesUID) {
 	        if($file->[21]) { # file is dicom
 	            $count++;
 	        }

@@ -62,7 +62,7 @@ my $dbh = &DB::DBI::connect_to_db(@Settings::db); print "Connecting to database.
 
 # get $tarchiveLibraryDir from the ConfigSettings table
 my $tarchiveLibraryDir = &DB::DBI::getConfigSetting(
-                            $dbh,'tarchiveLibraryDir'
+                            \$dbh,'tarchiveLibraryDir'
                             );
 $tarchiveLibraryDir    =~ s/\/$//g;
 

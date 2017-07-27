@@ -63,7 +63,7 @@ sub getConfigSetting
     $where = " WHERE c.ConfigID=(Select cs.ID from ConfigSettings cs where cs.Name=?)";
     $query = " SELECT c.Value FROM Config c";
     $query = $query . $where;
-    my $sth = $dbh->prepare($query);
+    my $sth = $$dbh->prepare($query);
     $sth->execute($name);
     if ( $sth->rows > 0 ) {
         $value = $sth->fetchrow_array();

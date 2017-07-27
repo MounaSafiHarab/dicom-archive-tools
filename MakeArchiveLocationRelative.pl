@@ -50,7 +50,7 @@ print "\n==> Successfully connected to database \n";
 #### This setting is in the ConfigSettings table   #############
 ################################################################
 my $tarchiveLibraryDir = &DB::DBI::getConfigSetting(
-                            $dbh,'tarchiveLibraryDir'
+                            \$dbh,'tarchiveLibraryDir'
                             );
 $tarchiveLibraryDir    =~ s/\/$//g;
 

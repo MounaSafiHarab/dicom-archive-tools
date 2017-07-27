@@ -51,7 +51,6 @@ unless(scalar(@leftovers) == 1 && $profile) {
 	 print $Usage;
 	 exit(1);
 }
-
 my $ldzf = abs_path($leftovers[0]);
 if (-d $ldzf && $ldzf =~ /LDZ/) { print "\nSelected study folder:\t $ldzf\n" }
 else { print "\n\tERROR: The target is not a directory or does not contain LDZ data!\n"; exit 33; }
@@ -70,7 +69,7 @@ my $dbh = &DB::DBI::connect_to_db(@Settings::db);
 print "\n==> Successfully connected to database \n";
 
 my $get_dicom_info   = &DB::DBI::getConfigSetting(
-                        $dbh,'get_dicom_info'
+                        \$dbh,'get_dicom_info'
                         );
 
 my $series = `find $ldzf -type f | $get_dicom_info -stdin -series -te -echo -slice_thickness | sort -u | grep 80 | cut -f 1\n`;

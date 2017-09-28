@@ -100,6 +100,7 @@ sub database {
 
     # whether the query worked fine
     my $success = undef;
+
     # check if this StudyUID is already in your database
     (my $query = <<QUERY) =~ s/\n/ /gm;
       SELECT 
@@ -115,7 +116,8 @@ sub database {
 QUERY
     my $sth = $dbh->prepare($query);
     $sth->execute($self->{studyuid});
-    
+
+=pod
     # if there is an entry get create info
     if($sth->rows > 0) {
 	my @row = $sth->fetchrow_array();
@@ -134,6 +136,7 @@ QUERY
     } else {
     	$update = 0;
     }
+=cut
 
     my $acq = (@{$self->{acqu_List}}[$ind]);
     my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
@@ -142,7 +145,8 @@ QUERY
 
     # INSERT or UPDATE 
     # get acquisition metadata
-    my $metaseriesnum = $meta . "_" . $seriesNum;
+    my $echoTRound = round($echoT);
+    my $metaseriesnum = $meta . "_" . $seriesNum . "_" . $echoTRound;
     my $sfile = "$self->{tmpdir}/$metaseriesnum.meta";
     print "$sfile \n";
     my $metacontent = &read_file($sfile);
@@ -317,6 +321,7 @@ QUERY
 
     # insert the series we are currently archiving (with index = $ind)
     my $acq = (@{$self->{acqu_List}}[$ind]);
+    print"***DCMSUM: acq is: $acq\n***";
     my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
 
     #InversionTime may not be insert in the DICOM Header under certain sequences acquisitions

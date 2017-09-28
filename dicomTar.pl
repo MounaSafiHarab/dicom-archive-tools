@@ -15,6 +15,7 @@ use Cwd qw/ abs_path /;
 use Socket;
 use Sys::Hostname;
 use lib "$FindBin::Bin";
+use Math::Round;
 
 use DICOM::DCMSUM;
 use DB::DBI;
@@ -114,160 +115,266 @@ my $summary = DICOM::DCMSUM->new($dcm_source,$targetlocation);
 # determine the name for the summary file
 my ($sumTypeVersion,$studyUnique,$creator,$sumTypeVersion,$DICOMmd5sum,$zipsum,$metafile,$finalTarget,$metafile,$metaname);
 my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num);
+my $echoTRound;
 my $ind = 0;
 my $update          = 1 if $clobber;
-    foreach my $acq (@{$summary->{acqu_List}}) {
-    print"Acquisitions: " . $acq . "\n";
+
+=pod
+if ($dbase) {
+        $dbh = &DB::DBI::connect_to_db(@Settings::db);
+         # EXIT if a seriesUID is already in the database
+        print "\nChecking for duplicate sequences between the upload and those inserted into the database\n" if $verbose;
+        my $duplicate_sequence_count;
+        my $sequence_count;
+        my @acqu_List = @{$summary->{acqu_List}};
+        my $acqu_List_count = $#acqu_List+1;
+
+        foreach my $acq (@acqu_List) {
+            # insert the series
+            my ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
+
+            (my $query_seriesuid = <<QUERY) =~ s/\n/ /gm;
+              SELECT
+                TarchiveSeriesID,
+                TarchiveID,
+                SeriesNumber,
+                SeriesDescription
+              FROM
+                tarchive_series
+              WHERE
+                SeriesUID=?
+QUERY
+            my $sth_seriesuid = $dbh->prepare($query_seriesuid);
+            $sth_seriesuid->execute($seriesUID);
+            my @row = $sth_seriesuid->fetchrow_array();
+
+
+            if($sth_seriesuid->rows > 0) {
+                $duplicate_sequence_count++;
+                # if there is an entry, and no clobber, send a message to the user that this sequence has been already inserted so it won't be updated
+                print "\nWARNING:\nThe sequence \'$row[3]\' has already been inserted to the database. \n".
+                      "The Series Number is \'$row[2]\', the TarchiveSeriesID is \'$row[0]\' and the TarchiveID is \'$row[1]\'.\n" .
+                      "Skipping insertion of this sequence. \n";
+            }
+            if ($duplicate_sequence_count >= 1) {
+                print "\nERROR1:\nSome sequences uploaded have already been inserted into the database. Please re-upload only unique sequences. Exiting. \n";
+                exit 33;
+            }
+            else {
+                print "\nNo duplicate series found in the upload. Continuing the insertion. \n";
+            }
+        }
+        # End check for an existing seriesUID inserted into the database
+}
+=cut
+
+$dbh = &DB::DBI::connect_to_db(@Settings::db);
+my @seriesUID_inserted;
+my @echoT_inserted;
+foreach my $acq (@{$summary->{acqu_List}}) {
     ($seriesNum, $sequName,  $echoT, $repT, $invT, $seriesName, $sl_thickness, $phaseEncode, $seriesUID, $modality, $num) = split(':::', $acq);
 
-    if ($ind == 0) {
-        $update = $clobber
-    } else {
-        $update = 0;
-    }
+    (my $query_seriesuid = <<QUERY) =~ s/\n/ /gm;
+      SELECT
+        ts.TarchiveSeriesID,
+        ts.TarchiveID,
+        ts.SeriesNumber,
+        ts.SeriesDescription,
+        t.SourceLocation
+      FROM
+        tarchive_series ts
+      JOIN
+        tarchive t
+      ON
+        t.TarchiveID = ts.TarchiveID
+      WHERE
+        ts.SeriesUID=?
+      AND
+        ts.EchoTime=?
+      AND
+        t.SourceLocation<>?
+QUERY
+    my $sth_seriesuid = $dbh->prepare($query_seriesuid);
+    $sth_seriesuid->execute($seriesUID, $echoT, $dcm_source);
+    my @row = $sth_seriesuid->fetchrow_array();
 
-    my $acqcount = 1;
-#    my $acqcount = acquisition_count($summary->{acqu_List}, $seriesUID);
-    my $dcmcount = dcm_count($summary->{dcminfo}, $seriesUID);
-    my $filecount = file_count($summary->{dcminfo}, $seriesUID);
 
-    print "dcm count, acqcount and filecount are: $dcmcount, $acqcount, and $filecount \n";
+    if($sth_seriesuid->rows == 0) { # not in database from a previous upload
+        if ((in_array($seriesUID, \@seriesUID_inserted)==0) || (in_array($echoT, \@echoT_inserted)==0)) { #only insert unique echoT and seriesUID from this upload
+            $echoTRound = round($echoT);
+            if ($ind == 0) {
+                $update = $clobber
+            } else {
+                $update = 0;
+            }
 
-    $summary->{totalcount}        = $filecount;
-    $summary->{dcmcount}          = $dcmcount;
-    $summary->{acquisition_count} = $acqcount;
+            my $acqcount = 1;
+        #    my $acqcount = acquisition_count($summary->{acqu_List}, $seriesUID);
+            my $dcmcount = dcm_count($summary->{dcminfo}, $seriesUID);
+            my $filecount = file_count($summary->{dcminfo}, $seriesUID);
+
+            $summary->{totalcount}        = $filecount;
+            $summary->{dcmcount}          = $dcmcount;
+            $summary->{acquisition_count} = $acqcount;
 
 
-    $metaname = $summary->{'metaname'};
-    # get the summary type version
-    $sumTypeVersion = $summary->{'sumTypeVersion'};
-    # get the unique study ID
-    $studyUnique = $summary->{'studyuid'};
-    $creator         = $summary->{user};
-    $sumTypeVersion  = $summary->{sumTypeVersion}; 
+            $metaname = $summary->{'metaname'};
+            # get the summary type version
+            $sumTypeVersion = $summary->{'sumTypeVersion'};
+            # get the unique study ID
+            $studyUnique = $summary->{'studyuid'};
+            $creator         = $summary->{user};
+            $sumTypeVersion  = $summary->{sumTypeVersion};
 
-    my $byDate;
-    # Determine how to name the archive... by acquisition date or by today's date.
-    if ($todayDate) { $byDate = $today; } else { $byDate = $summary->{header}->{scandate}; } # wrap up the archive 
-    $finalTarget = "$targetlocation/DCM_${byDate}_$summary->{metaname}_$seriesNum.tar";
-    print "Target is: " . $finalTarget . "\n";
-    if (-e $finalTarget && !$clobber) { print "\nTarget exists. Use clobber to overwrite!\n\n"; exit 2; }
+            my $byDate;
+            my $seriesNum2 = $seriesNum . "_" . $echoTRound;
+            # Determine how to name the archive... by acquisition date or by today's date.
+            if ($todayDate) { $byDate = $today; } else { $byDate = $summary->{header}->{scandate}; } # wrap up the archive
+            $finalTarget = "$targetlocation/DCM_${byDate}_$summary->{metaname}_$seriesNum2.tar";
+            print "Target is: " . $finalTarget . "\n";
+            if (-e $finalTarget && !$clobber) { print "\nTarget exists. Use clobber to overwrite!\n\n"; exit 2; }
 
-    # read acquisition metadata into variable
-    my $metaname_seriesnum = $metaname . "_" . $seriesNum;
-    $metafile = "$targetlocation/$metaname_seriesnum.meta";
-    open META, ">$metafile";
-    META->autoflush(1);
-    select(META);
-    $summary->dcmsummary($seriesNum);
-    my $metacontent = $summary->read_file("$metafile");
 
-    # write to STDOUT again
-    select(STDOUT);
+            # read acquisition metadata into variable
+            my $metaname_seriesnum = $metaname . "_" . $seriesNum . "_" . $echoTRound;
+            $metafile = "$targetlocation/$metaname_seriesnum.meta";
+            open META, ">$metafile";
+            META->autoflush(1);
+            select(META);
+            $summary->dcmsummary($seriesNum);
+            my $metacontent = $summary->read_file("$metafile");
 
-    # get rid of newline
-    chomp($hostname,$system);
+            # write to STDOUT again
+            select(STDOUT);
 
-    #### create tar from right above the source
-    chdir(dirname($dcm_source));
-    print "You will archive the dir\t\t: $totar\n" if $verbose;
+            # get rid of newline
+            chomp($hostname,$system);
 
-    ### get only the files with a specific series_description:
-    my @file_list;
-    find(
-        sub {
-            return unless -f;    #Must be a file
-            push @file_list, $File::Find::name;
-        },
-        $dcm_source
-    );
+            #### create tar from right above the source
+            chdir(dirname($dcm_source));
+            print "You will archive the dir\t\t: $totar\n" if $verbose;
 
-    my $totar_seriesnum = $totar."_".$seriesNum;
-    my ($dicom_file, $cmd, $series_instanceUID, $command, $l, $t);
-    $command = "cd $dcm_source; tar cf $targetlocation/$totar_seriesnum.tar ";
-    foreach (@file_list) {
-        $dicom_file = $_;
-        $cmd          = "dcmdump $dicom_file | grep SeriesInstanceUID";
-        $series_instanceUID =  `$cmd`;
-        ($l,$series_instanceUID ,$t) = split /\[(.*?)\]/, $series_instanceUID ;
-        #print $series_instanceUID . "\n";
-        $dicom_file =~ s/$dcm_source//g;
-        $dicom_file =~ s/^\///;
-        #$dicom_file =~ s/$totar//g;
-        if ($series_instanceUID  eq $seriesUID) {
-            $command = $command . "$dicom_file ";
+            ### get only the files with a specific series_description:
+
+            my $totar_seriesnum = $totar."_".$seriesNum."_".$echoTRound;
+
+            my @file_list;
+            find(
+                sub {
+                    return unless -f;    #Must be a file
+                    push @file_list, $File::Find::name;
+                },
+                $dcm_source
+            );
+
+            my ($dicom_file, $cmd, $series_instanceUID, $echo_time, $command, $l, $t, $metalist_seriesnum);
+            $command = "cd $dcm_source; tar cf $targetlocation/$totar_seriesnum.tar ";
+            $metalist_seriesnum = $metaname . "_" . $seriesNum . "_" . $echoTRound;
+            $metalist_seriesnum = "$targetlocation/$metalist_seriesnum.txt";
+            open METALIST, ">$metalist_seriesnum";
+            METALIST->autoflush(1);
+            select(METALIST);
+            foreach (@file_list) {
+                $dicom_file = $_;
+                $cmd          = "dcmdump $dicom_file | grep SeriesInstanceUID";
+                $series_instanceUID =  `$cmd`;
+                ($l,$series_instanceUID ,$t) = split /\[(.*?)\]/, $series_instanceUID ;
+                #print $series_instanceUID . "\lsn";
+                $cmd          = "dcmdump $dicom_file | grep EchoTime";
+                $echo_time =  `$cmd`;
+                ($l,$echo_time ,$t) = split /\[(.*?)\]/, $echo_time ;
+                #print $echo_time . "\n";
+                $dicom_file =~ s/$dcm_source//g;
+                $dicom_file =~ s/^\///;
+                #$dicom_file =~ s/$totar//g;
+                if ($series_instanceUID  eq $seriesUID && $echo_time eq $echoT) {
+                # write list of files to be Tarred in a separate .txt to avoid character limit on the Tar command
+                print METALIST "$dicom_file\n";
+                select(STDOUT);
+                }
+            }
+            $command = $command . " -T " . $metalist_seriesnum;
+            close METALIST;
+
+            # tar contents into tarball
+            select(META);
+            select(STDOUT);
+            print "\nYou are creating a tar with the following command: \n$command\n" if $verbose;
+            `$command`;
+
+            # chdir to targetlocation create md5sums gzip and wrap the whole thing up again into a retarred archive
+            chdir($targetlocation);
+            print "\ngetting md5sums and gzipping!!\n" if $verbose;
+            print $totar_seriesnum . "\n";
+            $DICOMmd5sum = DICOM::DCMSUM::md5sum($totar_seriesnum.".tar"); #`md5sum $totar.tar`;
+            `gzip -nf $totar_seriesnum.tar`;
+            $zipsum =  DICOM::DCMSUM::md5sum($totar_seriesnum.".tar.gz");
+
+            # create tar info for the tarball NOT  containing md5 for archive tarball
+            open TARINFO, ">$totar_seriesnum.log";
+            select(TARINFO);
+            &archive_head;
+            close TARINFO;
+            select(STDOUT);
+            my $tarinfo = &read_file("$totar.log");
+
+            my $retar = "tar cvf DCM\_$byDate\_$totar_seriesnum.tar $totar_seriesnum.meta $totar_seriesnum.log $totar_seriesnum.tar.gz";
+            `$retar`;
+            print "Just after the retar\n";
+            $ARCHIVEmd5sum =  DICOM::DCMSUM::md5sum("DCM\_$byDate\_$totar_seriesnum.tar");
+
+            # create tar info for database containing md5 for archive tarball
+            open TARINFO, ">$totar_seriesnum.log";
+            select(TARINFO);
+            &archive_head;
+            close TARINFO;
+            select(STDOUT);
+            $tarinfo = &read_file("$totar_seriesnum.log");
+            print  $tarinfo if $verbose;
+
+
+            # if -dbase has been given create an entry based on unique studyID
+            # Create database entry checking for already existing entries...
+            my $success;
+            if ($dbase) {
+                $dbh = &DB::DBI::connect_to_db(@Settings::db);
+                print "\nAdding archive info into database\n" if $verbose;
+                my $ArchiveLocation = $finalTarget;
+                $ArchiveLocation    =~ s/$targetlocation\/?//g;
+                $success            = $summary->database($dbh, $metaname, $update, $noappend, $tarTypeVersion, $tarinfo, $DICOMmd5sum, $ARCHIVEmd5sum, $ArchiveLocation, $neurodbCenterName, $ind);
+            }
+
+
+            # now report database failure (was not above to ensure temp files were erased)
+            if ($dbase) {
+                if ($success) { print "\nDone adding archive info into database\n" if $verbose; }
+                else { print "\nThe database command failed\n"; exit 22; }
+            }
+
+            # call the updateMRI_upload script###
+            if ($mri_upload_update) {
+                my $script =  "updateMRI_Upload.pl"
+                         . " -profile $profile -globLocation -tarchivePath $finalTarget"
+                         . " -sourceLocation $dcm_source";
+                my $output = system($script);
+                if ($output!=0)  {
+                    print "\n\tERROR: the script updateMRI_Upload.pl has failed \n\n";
+                    exit 33;
+                }
+            # delete tmp files
+            print "\nRemoving temporary files from target location\n\n" if $verbose;
+            `rm -f $totar_seriesnum.tar.gz $totar_seriesnum.meta $totar_seriesnum.log`;
+            }
+            push(@seriesUID_inserted, $seriesUID);
+            push(@echoT_inserted, $echoT);
         }
-    }
-
-    # tar contents into tarball
-    print "\nYou are creating a tar with the following command: \n$command\n" if $verbose;
-    `$command`;
-
-    # chdir to targetlocation create md5sums gzip and wrap the whole thing up again into a retarred archive
-    chdir($targetlocation);
-    print "\ngetting md5sums and gzipping!!\n" if $verbose;
-    print $totar_seriesnum . "\n";
-    $DICOMmd5sum = DICOM::DCMSUM::md5sum($totar_seriesnum.".tar"); #`md5sum $totar.tar`;
-    `gzip -nf $totar_seriesnum.tar`;
-    $zipsum =  DICOM::DCMSUM::md5sum($totar_seriesnum.".tar.gz");
-
-    # create tar info for the tarball NOT  containing md5 for archive tarball
-    open TARINFO, ">$totar_seriesnum.log";
-    select(TARINFO);
-    &archive_head;
-    close TARINFO;
-    select(STDOUT);
-    my $tarinfo = &read_file("$totar.log"); 
-
-    my $retar = "tar cvf DCM\_$byDate\_$totar_seriesnum.tar $totar_seriesnum.meta $totar_seriesnum.log $totar_seriesnum.tar.gz";
-    `$retar`;
-    print "Just after the retar\n";
-    $ARCHIVEmd5sum =  DICOM::DCMSUM::md5sum("DCM\_$byDate\_$totar_seriesnum.tar");
-
-    # create tar info for database containing md5 for archive tarball
-    open TARINFO, ">$totar_seriesnum.log";
-    select(TARINFO);
-    &archive_head;
-    close TARINFO;
-    select(STDOUT);
-    $tarinfo = &read_file("$totar_seriesnum.log");
-    print  $tarinfo if $verbose;
-
-
-    # if -dbase has been given create an entry based on unique studyID
-    # Create database entry checking for already existing entries...
-    my $success;
-    if ($dbase) {
-        $dbh = &DB::DBI::connect_to_db(@Settings::db);
-        print "\nAdding archive info into database\n" if $verbose;
-        my $ArchiveLocation = $finalTarget;
-        $ArchiveLocation    =~ s/$targetlocation\/?//g;
-        $success            = $summary->database($dbh, $metaname, $update, $noappend, $tarTypeVersion, $tarinfo, $DICOMmd5sum, $ARCHIVEmd5sum, $ArchiveLocation, $neurodbCenterName, $ind);
-    }
-
-
-    # now report database failure (was not above to ensure temp files were erased)
-    if ($dbase) {
-        if ($success) { print "\nDone adding archive info into database\n" if $verbose; }
-        else { print "\nThe database command failed\n"; exit 22; }
-    }
-
-    # call the updateMRI_upload script###
-    if ($mri_upload_update) {
-        my $script =  "updateMRI_Upload.pl"
-                 . " -profile $profile -globLocation -tarchivePath $finalTarget"
-                 . " -sourceLocation $dcm_source";
-        my $output = system($script);
-        if ($output!=0)  {
-            print "\n\tERROR: the script updateMRI_Upload.pl has failed \n\n"; 
-            exit 33;
-        }
-    # delete tmp files
-    print "\nRemoving temporary files from target location\n\n" if $verbose;
-    `rm -f $totar_seriesnum.tar.gz $totar_seriesnum.meta $totar_seriesnum.log`;
-    }
-    $ind++;
-}# end of for each acquisition 
+        $ind++;
+     }
+     else { #series in database
+        print "\nERROR2:\nSome sequences uploaded have already been inserted into the database. Please re-upload only unique sequences. Exiting. \n";
+        exit 33;
+     }
+}# end of for each acquisition
 
 # delete tmp files
 print "\nRemoving temporary files from target location\n\n" if $verbose;
@@ -373,4 +480,10 @@ sub dcm_count {
 	    exit 33;
     }
     else { return $count;}
+}
+
+sub in_array {
+  my ($item, $array) = @_;
+  my %hash = map { $_ => 1 } @$array;
+  if ($hash{$item}) { return 1; } else { return 0; }
 }
